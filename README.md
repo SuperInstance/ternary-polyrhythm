@@ -1,72 +1,144 @@
 # ternary-polyrhythm
 
-**Two rhythms at once. The tension between them IS the music.**
+Polyrhythmic pattern generation with ternary structure. Multiple simultaneous rhythmic cycles, LCM sync points, Euclidean (Björklund) rhythm generation, layered patterns, polymeters, and rhythmic density analysis.
 
-A polyrhythm is two (or more) rhythmic patterns playing simultaneously with different period lengths. 3 against 4. 5 against 7. The tension between the competing pulse rates is the *entire point* — it's what makes West African drumming, gamelan, and math rock feel alive. Your brain can't predict where both patterns will land, so it stays engaged, trying to resolve the irreconcilable.
+## Why It Matters
 
-This crate computes polyrhythms for ternary hit patterns. Given N and M, it generates both rhythms, finds where they coincide (the "downbeat"), computes the full cycle length (LCM), and gives you tools to layer, shift, and analyze polyrhythmic structures.
+A polyrhythm is the simultaneous presentation of two or more conflicting rhythmic patterns — e.g., 3 beats against 4. The tension between the patterns creates the musical feel of artists like Ligeti, Meshuggah, and West African drumming traditions. In ternary agent systems, polyrhythms model:
 
-## What's Inside
+- **Multi-period agent scheduling**: agents with different cycle lengths running concurrently
+- **Phase synchronization points**: when do N-period and M-period cycles align?
+- **Diversity metrics**: rhythmic density measures how saturated a pattern is
+- **Euclidean rhythm generation**: maximally even patterns (the "God's algorithm" of rhythm)
 
-- **`Rhythm`** — a hit pattern: cycle length + set of hit positions
-- **`Polyrhythm`** — N against M. Generates both patterns, computes cycle length
-- **`coincidence(n, m)`** — where do both patterns hit simultaneously? The "one"
-- **`euclidean(k, n)`** — distribute k hits evenly in n steps (Björklund's algorithm)
-- **`shift(rhythm, offset)`** — shift a rhythm forward, creating phase offset
-- **`layer(rhythms)`** — combine multiple rhythms into one composite pattern
-- **`gcd(a, b)`** / **`lcm(a, m)`** — the arithmetic underneath polyrhythms
-- **`is_coprime(a, b)`** — coprime polyrhythms are the most interesting (irresolvable tension)
+The mathematical structure is pure number theory: GCD, LCM, and modular arithmetic.
 
-## Quick Example
+## How It Works
+
+### LCM and GCD
+
+For two cycle lengths $n$ and $m$:
+
+$$\gcd(n, m) = \text{Euclidean algorithm}, \quad \text{lcm}(n, m) = \frac{n \cdot m}{\gcd(n, m)}$$
+
+The **sync point** — when both rhythms return to beat 1 simultaneously — is the LCM.
+
+**Example:** polyrhythm 3:4 syncs every $\text{lcm}(3,4) = 12$ beats.
+
+**Complexity:** O($\log(\min(n,m))$) for GCD via Euclidean algorithm.
+
+### Combined Hit Pattern
+
+For a polyrhythm of $n$ against $m$ over one sync cycle of length $L = \text{lcm}(n,m)$:
+
+$$\text{hits}_n = \left\{ i \cdot \frac{L}{n} : i = 0, 1, \ldots, n-1 \right\}$$
+$$\text{hits}_m = \left\{ j \cdot \frac{L}{m} : j = 0, 1, \ldots, m-1 \right\}$$
+$$\text{combined} = \text{hits}_n \cup \text{hits}_m$$
+
+Total unique hits: $n + m - |\text{hits}_n \cap \text{hits}_m|$.
+
+### Euclidean Rhythm (Björklund Algorithm)
+
+Distribute $k$ pulses as evenly as possible in $n$ slots:
+
+$$\text{hit}_i = \left\lfloor \frac{i \cdot n}{k} \right\rfloor \neq \left\lfloor \frac{(i+1) \cdot n}{k} \right\rfloor$$
+
+Or equivalently, place pulses at positions $\lfloor i \cdot n/k \rfloor$ for $i = 0, \ldots, k-1$.
+
+**Properties:**
+- **Maximally even**: gaps between hits differ by at most 1
+- **Rotation-equivalent**: all rotations produce the same rhythmic quality
+- **Cultural universality**: generates virtually all traditional world music rhythms
+
+**Example:** $E(3, 8) = [1, 0, 0, 1, 0, 0, 1, 0]$ — the Cuban tresillo.
+
+### Layered Patterns
+
+For $k$ rhythms with lengths $l_1, l_2, \ldots, l_k$, the combined cycle is:
+
+$$L_{\text{total}} = \text{lcm}(l_1, l_2, \ldots, l_k)$$
+
+A hit occurs at beat $b$ if **any** rhythm has a hit at position $b \bmod l_i$.
+
+### Polymeter
+
+Two time signatures running simultaneously. The sync point is $\text{lcm}(\text{sig}_A, \text{sig}_B)$.
+
+### Rhythmic Density
+
+$$\rho = \frac{|\text{hits}|}{\text{cycle length}}$$
+
+- $\rho = 0$: silence
+- $\rho = 1$: every beat is a hit (rolls)
+- $\rho = 0.5$: half-time feel
+
+## Quick Start
 
 ```rust
 use ternary_polyrhythm::*;
 
-// Classic 3:2 polyrhythm
-let poly = Polyrhythm { n: 3, m: 2 };
-assert_eq!(poly.cycle_length(), 6); // LCM(3, 2)
+// Polyrhythm 3:4 — syncs every 12 beats
+let pr = Polyrhythm::new(3, 4);
+assert_eq!(pr.sync_length(), 12);
+let hits = pr.combined_hits(); // unique beat positions with hits
 
-// Where do they coincide?
-let coincidences = coincidence(3, 2);
-// [0] — only at the downbeat
+// Layered rhythms
+let r1 = Rhythm::new(3, vec![0]);       // every 3rd beat
+let r2 = Rhythm::new(4, vec![0]);       // every 4th beat
+let combined = layered_patterns(&[r1, r2]); // over lcm(3,4)=12 beats
 
-// Layer two patterns
-let r1 = Rhythm::new(3, vec![0, 1]);
-let r2 = Rhythm::new(4, vec![0, 2]);
-let composite = layer(&[r1, r2]);
+// Euclidean rhythm: 3 pulses in 8 slots
+let er = euclidean_rhythm(3, 8);
+assert_eq!(er.iter().filter(|&&b| b).count(), 3);
+// [true, false, false, true, false, false, true, false] — tresillo!
 
-// Euclidean: 5 in 8 (bossa nova)
-let bossa = euclidean(5, 8);
-// [0, 1, 3, 5, 6] — the classic pattern
+// Cross-rhythm
+let cr = cross_rhythm(3, 2);
+assert_eq!(cr.sync_length(), 6);
+
+// Polymeter 3/4 × 4/4
+let pm = Polymeter::new(3, 4);
+assert_eq!(pm.sync_point(), 12);
+
+// Sync point for multiple patterns
+let sp = sync_point(&[3, 4, 5]);
+assert_eq!(sp, 60); // lcm(3,4,5)
+
+// Rhythmic density
+let hits: HashSet<usize> = vec![0, 2, 4, 6].into_iter().collect();
+assert!((rhythmic_density(&hits, 8) - 0.5).abs() < 1e-10);
 ```
 
-## The Deeper Truth
+## API
 
-**Polyrhythms are audible number theory.** The cycle length is the LCM. The coincidence points follow the GCD. The tension is the ratio N/M — which is irrational when N and M are coprime. Irrational ratios mean the patterns *never fully resolve*. They cycle, but they don't repeat in a way your brain can lock onto. This is why coprime polyrhythms (3:2, 5:3, 7:4) feel more alive than simple ratios (4:2 = 2:1 = octave).
+| Type / Function | Description |
+|---|---|
+| `Polyrhythm::new(n, m)` | N-against-M polyrhythm |
+| `.sync_length()` | LCM sync point |
+| `.combined_hits()` | All unique hit positions over one cycle |
+| `Rhythm::new(length, hits)` | Single rhythm pattern |
+| `.hit_at(i) → bool` | Does beat $i$ have a hit? (wraps modulo length) |
+| `layered_patterns(rhythms)` | Union of hits over LCM of all lengths |
+| `euclidean_rhythm(k, n)` | Björklund algorithm: $k$ pulses in $n$ slots |
+| `cross_rhythm(a, b)` | Classical cross-rhythm (alias for Polyrhythm) |
+| `Polymeter::new(sig_a, sig_b)` | Conflicting time signatures |
+| `.sync_point()` | Beat where both meters align on beat 1 |
+| `sync_point(lengths)` | LCM of multiple cycle lengths |
+| `rhythmic_density(hits, length)` | Fill ratio ρ ∈ [0, 1] |
+| `polyrhythm_lcm(n, m)` | Convenience: LCM of two cycle lengths |
 
-In ternary, polyrhythmic hits carry {-1, 0, +1} values, and the composite is a ternary sum. This creates interference: where both patterns hit +1, the sum wraps to -1 (mod 3). The "collision" of two positive hits creates a negative value — which sounds like an accent that *inverts*. This ternary interference is a genuinely new musical phenomenon that doesn't exist in binary (hit/no-hit) rhythm systems.
+## Architecture Notes
 
-**Use cases:**
-- **Algorithmic music** — generate complex rhythms from simple number-theoretic rules
-- **Music education** — visualize and explore polyrhythms interactively
-- **Game design** — rhythm-based mechanics with polyrhythmic patterns
-- **Math education** — LCM, GCD, and Euclidean algorithms made tangible
-- **Dance** — coordinate multiple dancers with different step patterns
+Polyrhythms instantiate the **γ + η = C** identity in the time domain. Each rhythm cycle is a periodic allocation of "active" beats (γ — constructive impulses) and "rest" beats (η — inhibitory gaps). The total conserved quantity $C$ is the cycle length — fixed for each rhythm, regardless of how many hits it contains.
 
-## See Also
+When two rhythms layer, their combined pattern represents the **interference** of two conserved cycles. The LCM sync point is the temporal analogue of the conservation boundary $C$: it's the shortest time at which both cycles have completed an integer number of revolutions, returning the system to its initial state. Denser rhythms (higher $\rho$) spend more of their $C$-budget on γ-beats; sparser rhythms conserve more η-rests. The Euclidean algorithm finds the unique distribution that minimizes the variance of inter-onset intervals — the most "balanced" allocation of γ and η within a fixed $C$.
 
-- **ternary-rhythm** — single rhythm pattern analysis
-- **ternary-phase** — phase relationships between overlapping rhythms
-- **ternary-fib** — Fibonacci rhythms create natural polyrhythms
-- **ternary-tempo** — speed relationships between polyrhythmic layers
-- **ternary-harmonic** — the frequency-domain analog (polyrhythms in time = harmonics in frequency)
-- **ternary-jam** — polyrhythmic improvisation
+## References
 
-## Install
-
-```bash
-cargo add ternary-polyrhythm
-```
+- Toussaint, G. T. (2005). *The Geometry of Musical Rhythm.* Springer.
+- Björklund, E. (2003). *The Theory of Rep-Rate Pattern Generation in the Spallation Neutron Source.* (Original algorithm)
+- London, J. (2012). *Hearing in Time.* 2nd ed. Oxford University Press.
+- Wright, O. & Toussaint, G. T. (2006). *The Rhythmic Tiling Problem.* CIRM.
 
 ## License
 
